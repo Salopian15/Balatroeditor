@@ -2,20 +2,23 @@
 Main application window — tab layout, file loading/saving, backup/restore.
 """
 
+import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
 import shutil
 from datetime import datetime
 
-from save_io import find_profiles, read_save, write_save, read_jkr, write_jkr
+IS_MAC = sys.platform == "darwin"
+
+from save_io import find_profiles, read_save, write_save, read_jkr, write_jkr, SAVE_DIR
 from editor_model import repair_cards
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
 
 
-BACKUPS_DIR = os.path.expanduser("~/Library/Application Support/Balatro/.editor_backups")
+BACKUPS_DIR = os.path.join(SAVE_DIR, ".editor_backups")
 
 
 def ensure_backups_dir():
@@ -78,22 +81,25 @@ class App(tk.Tk):
     def _build_menu(self):
         menubar = tk.Menu(self)
         file_menu = tk.Menu(menubar, tearoff=0)
+        mod_key = "⌘" if IS_MAC else "Ctrl+"
+        bind_key = "Command" if IS_MAC else "Control"
+
         file_menu.add_command(label="Open Save…", command=self._open_file,
-                              accelerator="⌘O")
+                              accelerator=f"{mod_key}O")
         file_menu.add_separator()
         file_menu.add_command(label="Save", command=self._save_file,
-                              accelerator="⌘S")
+                              accelerator=f"{mod_key}S")
         file_menu.add_command(label="Save As…", command=self._save_as)
         file_menu.add_separator()
         file_menu.add_command(label="View Backups…", command=self._show_backups)
         file_menu.add_separator()
         file_menu.add_command(label="Quit", command=self.quit,
-                              accelerator="⌘Q")
+                              accelerator=f"{mod_key}Q")
         menubar.add_cascade(label="File", menu=file_menu)
         self.config(menu=menubar)
 
-        self.bind_all("<Command-o>", lambda e: self._open_file())
-        self.bind_all("<Command-s>", lambda e: self._save_file())
+        self.bind_all(f"<{bind_key}-o>", lambda e: self._open_file())
+        self.bind_all(f"<{bind_key}-s>", lambda e: self._save_file())
 
     def _build_ui(self):
         # ── Bottom bar: status + save button ──
@@ -241,7 +247,7 @@ class App(tk.Tk):
                     messagebox.showerror("Error", f"Failed to delete:\n{e}")
 
     def _open_file(self):
-        save_dir = os.path.expanduser("~/Library/Application Support/Balatro")
+        save_dir = SAVE_DIR
         path = filedialog.askopenfilename(
             title="Open Balatro Save",
             initialdir=save_dir if os.path.isdir(save_dir) else "~",

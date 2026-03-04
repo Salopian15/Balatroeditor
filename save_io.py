@@ -7,10 +7,28 @@ Handles DEFLATE decompression/compression and Lua parsing/serialization.
 import zlib
 import shutil
 import os
+import platform
 from lua_parser import parse_lua, serialize_save
 
 
-SAVE_DIR = os.path.expanduser("~/Library/Application Support/Balatro")
+def _get_save_dir():
+    """Return the platform-specific Balatro save directory."""
+    system = platform.system()
+    if system == "Darwin":
+        return os.path.expanduser("~/Library/Application Support/Balatro")
+    elif system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return os.path.join(appdata, "Balatro")
+        return os.path.expanduser("~/AppData/Roaming/Balatro")
+    elif system == "Linux":
+        xdg_data = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        return os.path.join(xdg_data, "Balatro")
+    else:
+        raise OSError(f"Unsupported platform: {system}")
+
+
+SAVE_DIR = _get_save_dir()
 
 
 def find_profiles():

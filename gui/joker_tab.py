@@ -11,6 +11,7 @@ from editor_model import (
     get_jokers, get_joker_info, set_joker_edition, set_joker_modifier,
     add_joker, remove_joker, MODIFIER_FLAGS,
 )
+from gui import bind_mousewheel
 
 
 # Rarity groupings for the joker picker
@@ -162,21 +163,11 @@ class JokerTab(ttk.Frame):
                                lambda e: self.picker_canvas.configure(
                                    scrollregion=self.picker_canvas.bbox("all")))
 
-        # Bind mousewheel scrolling
-        self.picker_canvas.bind("<Enter>", self._bind_mousewheel)
-        self.picker_canvas.bind("<Leave>", self._unbind_mousewheel)
+        # Bind mousewheel scrolling (cross-platform)
+        bind_mousewheel(self.picker_canvas)
 
         self.selected_idx = None
         self._populate_picker()
-
-    def _bind_mousewheel(self, event):
-        self.picker_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        self.picker_canvas.unbind_all("<MouseWheel>")
-
-    def _on_mousewheel(self, event):
-        self.picker_canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
     def _populate_picker(self, filter_text=""):
         for w in self.picker_inner.winfo_children():

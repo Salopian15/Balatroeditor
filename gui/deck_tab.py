@@ -14,6 +14,7 @@ from game_data import (
 from editor_model import (
     get_playing_cards, set_card_enhancement, set_card_edition, set_card_seal,
 )
+from gui import bind_mousewheel
 
 
 class DeckTab(ttk.Frame):
@@ -65,8 +66,7 @@ class DeckTab(ttk.Frame):
                              lambda e: self.card_canvas.configure(
                                  scrollregion=self.card_canvas.bbox("all")))
 
-        self.card_canvas.bind("<Enter>", self._bind_mousewheel)
-        self.card_canvas.bind("<Leave>", self._unbind_mousewheel)
+        bind_mousewheel(self.card_canvas)
 
         # ── Bottom: edit panel for selected card ──
         bot = ttk.LabelFrame(self, text="Edit Selected Card", padding=10)
@@ -102,15 +102,6 @@ class DeckTab(ttk.Frame):
                                   state="readonly", width=14)
         seal_combo.grid(row=1, column=5, padx=5)
         seal_combo.bind("<<ComboboxSelected>>", self._on_seal_change)
-
-    def _bind_mousewheel(self, event):
-        self.card_canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
-    def _unbind_mousewheel(self, event):
-        self.card_canvas.unbind_all("<MouseWheel>")
-
-    def _on_mousewheel(self, event):
-        self.card_canvas.yview_scroll(-1 * (event.delta // 120), "units")
 
     def _on_enh_change(self, event=None):
         if self.selected_idx is None:

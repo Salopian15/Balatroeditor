@@ -4,7 +4,7 @@ A desktop GUI application for editing [Balatro](https://www.playbalatro.com/) sa
 
 > **⚠ Warning — always back up your saves before editing.**  
 > The editor creates automatic backups before every write, but keeping your own copy is never a bad idea.
-
+> The editor is intended as a way to mess around with your games, bare in mind there could be unintended consequences (corrupt save files) as a result of changes made.
 ---
 
 ## Features
@@ -43,10 +43,6 @@ A small test window should appear. If it does not, install the `python3-tk` pack
 git clone https://github.com/Salopian15/Balatroeditor.git
 cd Balatroeditor
 ```
-
-That is all — there are no extra dependencies to install.
-
----
 
 ## Running the Editor
 

@@ -11,6 +11,16 @@ from game_data import (
 )
 
 
+_MOD_MARKERS = (
+    "smods",
+    "steamodded",
+    "jokerdisplay",
+    "handy",
+    "handy balatro",
+    "handy_balatro",
+)
+
+
 def _game(data):
     """Get the GAME table from save data."""
     return data["GAME"]
@@ -19,6 +29,72 @@ def _game(data):
 def _card_areas(data):
     """cardAreas is a top-level key in the save, not under GAME."""
     return data["cardAreas"]
+
+
+def detect_modded_content(data):
+    """Heuristically detect modded content to avoid destructive auto-repairs.
+
+    Returns a dict with:
+    - is_modded: bool
+    - reasons: list[str]
+    - unknown_jokers: list[str]
+    - unknown_consumables: list[str]
+    - unknown_enhancements: list[str]
+    """
+    unknown_jokers = set()
+    for joker in get_jokers(data):
+        center = joker.get("save_fields", {}).get("center", "")
+        if center and center not in JOKER_MAP:
+            unknown_jokers.add(center)
+
+    unknown_consumables = set()
+    for consumable in get_consumables(data):
+        center = consumable.get("save_fields", {}).get("center", "")
+        if center and center not in _CONSUMABLE_META:
+            unknown_consumables.add(center)
+
+    unknown_enhancements = set()
+    for _, card in _all_playing_cards(data):
+        center = card.get("save_fields", {}).get("center", "c_base")
+        if center not in _ENHANCEMENT_CONFIGS:
+            unknown_enhancements.add(center)
+
+    def _has_mod_marker(obj, depth=0):
+        if depth > 10:
+            return False
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                if isinstance(key, str):
+                    k = key.lower()
+                    if any(marker in k for marker in _MOD_MARKERS):
+                        return True
+                if _has_mod_marker(val, depth + 1):
+                    return True
+            return False
+        if isinstance(obj, list):
+            return any(_has_mod_marker(item, depth + 1) for item in obj)
+        if isinstance(obj, str):
+            s = obj.lower()
+            return any(marker in s for marker in _MOD_MARKERS)
+        return False
+
+    reasons = []
+    if unknown_jokers:
+        reasons.append(f"unknown jokers ({len(unknown_jokers)})")
+    if unknown_consumables:
+        reasons.append(f"unknown consumables ({len(unknown_consumables)})")
+    if unknown_enhancements:
+        reasons.append(f"unknown enhancements ({len(unknown_enhancements)})")
+    if _has_mod_marker(data):
+        reasons.append("mod marker detected")
+
+    return {
+        "is_modded": bool(reasons),
+        "reasons": reasons,
+        "unknown_jokers": sorted(unknown_jokers),
+        "unknown_consumables": sorted(unknown_consumables),
+        "unknown_enhancements": sorted(unknown_enhancements),
+    }
 
 
 # ── General ────────────────────────────────────────────────────
@@ -949,32 +1025,35 @@ def repair_cards(data):
         center = card.get("save_fields", {}).get("center", "c_base")
         cfg = _ENHANCEMENT_CONFIGS.get(center, {})
         ability = card.get("ability", {})
+        known_center = center in _ENHANCEMENT_CONFIGS
 
         # --- Enhancement ability field repairs ---
 
         # Check x_mult (Xmult in config → x_mult in ability)
-        expected_x_mult = cfg.get("Xmult", 1)
-        if ability.get("x_mult") != expected_x_mult:
-            ability["x_mult"] = expected_x_mult
-            repaired += 1
+        if known_center:
+            expected_x_mult = cfg.get("Xmult", 1)
+            if ability.get("x_mult") != expected_x_mult:
+                ability["x_mult"] = expected_x_mult
+                repaired += 1
 
         # Check extra
-        if "extra" in cfg:
+        if known_center and "extra" in cfg:
             if "extra" not in ability or ability["extra"] != cfg["extra"]:
                 ability["extra"] = copy.deepcopy(cfg["extra"])
                 repaired += 1
         # Don't remove extra if not in config — it might be from a valid prior state
 
         # Check all simple numeric config fields
-        for field in ("mult", "h_mult", "h_x_mult", "h_dollars", "p_dollars",
-                       "t_mult", "t_chips", "h_size", "d_size"):
-            expected = cfg.get(field, 0)
-            if field in cfg and ability.get(field) != expected:
-                ability[field] = expected
-                repaired += 1
+        if known_center:
+            for field in ("mult", "h_mult", "h_x_mult", "h_dollars", "p_dollars",
+                           "t_mult", "t_chips", "h_size", "d_size"):
+                expected = cfg.get(field, 0)
+                if field in cfg and ability.get(field) != expected:
+                    ability[field] = expected
+                    repaired += 1
 
         # Check bonus
-        if "bonus" in cfg:
+        if known_center and "bonus" in cfg:
             if ability.get("bonus") != cfg["bonus"]:
                 ability["bonus"] = cfg["bonus"]
                 repaired += 1
@@ -991,17 +1070,18 @@ def repair_cards(data):
                         repaired += 1
                     break
 
-        # Ensure all base ability fields exist
-        for field, default in (("bonus", 0), ("mult", 0), ("h_mult", 0),
-                                ("h_x_mult", 0), ("h_dollars", 0), ("p_dollars", 0),
-                                ("t_mult", 0), ("t_chips", 0), ("x_mult", 1),
-                                ("h_size", 0), ("d_size", 0), ("type", ""),
-                                ("extra_value", 0), ("perma_bonus", 0),
-                                ("set", "Default"), ("effect", "Base"),
-                                ("name", "Default Base")):
-            if field not in ability:
-                ability[field] = default
-                repaired += 1
+        # Ensure all base ability fields exist (vanilla centers only).
+        if known_center:
+            for field, default in (("bonus", 0), ("mult", 0), ("h_mult", 0),
+                                    ("h_x_mult", 0), ("h_dollars", 0), ("p_dollars", 0),
+                                    ("t_mult", 0), ("t_chips", 0), ("x_mult", 1),
+                                    ("h_size", 0), ("d_size", 0), ("type", ""),
+                                    ("extra_value", 0), ("perma_bonus", 0),
+                                    ("set", "Default"), ("effect", "Base"),
+                                    ("name", "Default Base")):
+                if field not in ability:
+                    ability[field] = default
+                    repaired += 1
 
         # --- Edition repairs ---
         ed = card.get("edition")

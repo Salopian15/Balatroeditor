@@ -150,7 +150,17 @@ class JokerTab(ttk.Frame):
 
                                       highlightthickness=0)
 
+        self.joker_xscroll = ttk.Scrollbar(top, orient="horizontal",
+
+                           command=self.joker_canvas.xview)
+
+        self.joker_canvas.configure(xscrollcommand=self.joker_xscroll.set,
+
+                        xscrollincrement=16)
+
         self.joker_canvas.pack(fill="both", expand=True)
+
+        self.joker_xscroll.pack(fill="x", pady=(4, 0))
 
         self.joker_inner = tk.Frame(self.joker_canvas, bg="#1a1a2e")
 
@@ -160,9 +170,13 @@ class JokerTab(ttk.Frame):
 
         self.joker_inner.bind("<Configure>",
 
-                              lambda e: self.joker_canvas.configure(
+                              lambda e: self._update_joker_scrollregion())
 
-                                  scrollregion=self.joker_canvas.bbox("all")))
+
+
+        # Horizontal wheel support lets users browse long joker rows.
+
+        bind_mousewheel(self.joker_canvas, horizontal=True)
 
 
 
@@ -606,6 +620,10 @@ class JokerTab(ttk.Frame):
 
 
 
+        self._update_joker_scrollregion()
+
+
+
         if not self.data:
 
             return
@@ -622,6 +640,8 @@ class JokerTab(ttk.Frame):
 
             lbl.pack(padx=20, pady=30)
 
+            self._update_joker_scrollregion()
+
             return
 
 
@@ -633,6 +653,22 @@ class JokerTab(ttk.Frame):
             is_selected = (i in getattr(self, "selected_indices", set()))
 
             self._create_joker_card(i, info, is_selected)
+
+
+
+        # Ensure horizontal bounds match the current card strip.
+
+        self._update_joker_scrollregion()
+
+
+
+    def _update_joker_scrollregion(self):
+
+        self.joker_inner.update_idletasks()
+
+        bounds = self.joker_canvas.bbox("all")
+
+        self.joker_canvas.configure(scrollregion=(bounds or (0, 0, 0, 0)))
 
 
 

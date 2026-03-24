@@ -12,7 +12,7 @@ from datetime import datetime
 IS_MAC = sys.platform == "darwin"
 
 from save_io import find_profiles, read_save, write_save, read_jkr, write_jkr, SAVE_DIR
-from editor_model import repair_cards
+from editor_model import repair_cards, detect_modded_content
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
@@ -267,12 +267,20 @@ class App(tk.Tk):
             messagebox.showerror("Error", f"Failed to load save:\n{e}")
             return
 
-        # Auto-repair any cards with broken enhancement configs
-        repaired = repair_cards(self.data)
-        if repaired:
-            self.status_var.set(f"Loaded: {path}  (repaired {repaired} card field(s))")
+        # Auto-repair can overwrite values that some mods intentionally set.
+        mod_info = detect_modded_content(self.data)
+        if mod_info["is_modded"]:
+            reason = ", ".join(mod_info["reasons"])
+            self.status_var.set(
+                f"Loaded: {path}  (modded content detected; skipped auto-repair: {reason})"
+            )
+            repaired = 0
         else:
-            self.status_var.set(f"Loaded: {path}")
+            repaired = repair_cards(self.data)
+            if repaired:
+                self.status_var.set(f"Loaded: {path}  (repaired {repaired} card field(s))")
+            else:
+                self.status_var.set(f"Loaded: {path}")
 
         self._unsaved = repaired > 0
         self._update_title()

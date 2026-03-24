@@ -16,6 +16,7 @@ from editor_model import repair_cards
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
+from gui.consumable_tab import ConsumableTab
 
 
 BACKUPS_DIR = os.path.join(SAVE_DIR, ".editor_backups")
@@ -126,9 +127,11 @@ class App(tk.Tk):
         self.general_tab = GeneralTab(self.notebook, self)
         self.joker_tab = JokerTab(self.notebook, self)
         self.deck_tab = DeckTab(self.notebook, self)
+        self.consumable_tab = ConsumableTab(self.notebook, self)
 
         self.notebook.add(self.general_tab, text="  ⚙ General  ")
         self.notebook.add(self.joker_tab, text="  🃏 Jokers  ")
+        self.notebook.add(self.consumable_tab, text="  🔮 Consumables  ")
         self.notebook.add(self.deck_tab, text="  🂠 Deck  ")
 
     def _update_title(self):
@@ -276,6 +279,7 @@ class App(tk.Tk):
         self.general_tab.load_data(self.data)
         self.joker_tab.load_data(self.data)
         self.deck_tab.load_data(self.data)
+        self.consumable_tab.load_data(self.data)
 
     def _save_file(self):
         if not self.data or not self.save_path:

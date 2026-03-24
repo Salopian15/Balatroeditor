@@ -3,6 +3,7 @@ Editor model — high-level functions to read/manipulate Balatro save data.
 """
 
 import copy
+import os
 from game_data import (
     JOKER_MAP, ENHANCEMENT_MAP, EDITION_MAP, SEAL_MAP,
     SUIT_CODES, RANK_CODES, SUIT_CODE_REV, RANK_CODE_REV, RANK_NOMINAL,
@@ -397,15 +398,17 @@ def add_joker(data, joker_id, edition_key="base"):
         "rank": 1,
     }
 
+    # Update cost for edition (matches Card:set_cost from game source)
     if edition_key != "base":
         set_joker_edition(joker, edition_key)
-        # Update cost for edition (matches Card:set_cost from game source)
         ed = joker.get("edition", {})
         ed_cost = ((ed.get("foil") and 2) or 0) + ((ed.get("holo") and 3) or 0) + \
                   ((ed.get("polychrome") and 5) or 0) + ((ed.get("negative") and 5) or 0)
         joker["extra_cost"] = ed_cost
         joker["cost"] = max(1, int((jcfg["cost"] + ed_cost + 0.5)))
         joker["sell_cost"] = max(1, joker["cost"] // 2)
+
+    joker.setdefault("config", {})["center"] = joker_id
 
     cards = _card_areas(data)["jokers"]["cards"]
     if isinstance(cards, list):
@@ -423,7 +426,367 @@ def add_joker(data, joker_id, edition_key="base"):
     return joker
 
 
-# ── Deck / Playing Cards ──────────────────────────────────────
+# ── Deck / Playing Cards / Consumables ────────────────────────
+
+def get_consumables(data):
+    """Return list of consumable card objects."""
+    cards = _card_areas(data).get("consumeables", {}).get("cards", {})
+    return _get_joker_list(cards)
+
+
+def _consumable_set(center_id):
+    tarot_ids = {
+        "c_fool", "c_magician", "c_high_priestess", "c_empress", "c_emperor",
+        "c_heirophant", "c_lovers", "c_chariot", "c_justice", "c_hermit",
+        "c_wheel_of_fortune", "c_strength", "c_hanged_man", "c_death",
+        "c_temperance", "c_devil", "c_tower", "c_star", "c_moon", "c_sun",
+        "c_judgement", "c_world",
+    }
+    spectral_ids = {
+        "c_familiar", "c_grim", "c_incantation", "c_talisman", "c_aura",
+        "c_wraith", "c_sigil", "c_ouija", "c_ectoplasm", "c_immolate",
+        "c_ankh", "c_deja_vu", "c_hex", "c_trance", "c_medium", "c_cryptid",
+        "c_soul", "c_black_hole",
+    }
+    if center_id.startswith("c_tarot") or center_id in tarot_ids:
+        return "Tarot"
+    if center_id.startswith("c_spectral") or center_id in spectral_ids:
+        return "Spectral"
+    return "Planet"
+
+
+_CONSUMABLE_META = {
+    # Tarot
+    "c_fool": {"name": "The Fool", "set": "Tarot", "effect": "Copy", "order": 1, "cost": 3, "config": {}},
+    "c_magician": {"name": "The Magician", "set": "Tarot", "effect": "Enhance", "order": 2, "cost": 3, "config": {"mod_conv": "m_lucky", "max_highlighted": 2}},
+    "c_high_priestess": {"name": "The High Priestess", "set": "Tarot", "effect": "Create Planet", "order": 3, "cost": 3, "config": {"planets": 2}},
+    "c_empress": {"name": "The Empress", "set": "Tarot", "effect": "Enhance", "order": 4, "cost": 3, "config": {"mod_conv": "m_mult", "max_highlighted": 2}},
+    "c_emperor": {"name": "The Emperor", "set": "Tarot", "effect": "Create Tarot", "order": 5, "cost": 3, "config": {"tarots": 2}},
+    "c_heirophant": {"name": "The Hierophant", "set": "Tarot", "effect": "Enhance", "order": 6, "cost": 3, "config": {"mod_conv": "m_bonus", "max_highlighted": 2}},
+    "c_lovers": {"name": "The Lovers", "set": "Tarot", "effect": "Enhance", "order": 7, "cost": 3, "config": {"mod_conv": "m_wild", "max_highlighted": 1}},
+    "c_chariot": {"name": "The Chariot", "set": "Tarot", "effect": "Enhance", "order": 8, "cost": 3, "config": {"mod_conv": "m_steel", "max_highlighted": 1}},
+    "c_justice": {"name": "Justice", "set": "Tarot", "effect": "Enhance", "order": 9, "cost": 3, "config": {"mod_conv": "m_glass", "max_highlighted": 1}},
+    "c_hermit": {"name": "The Hermit", "set": "Tarot", "effect": "Money", "order": 10, "cost": 3, "config": {"dollars": 20}},
+    "c_wheel_of_fortune": {"name": "The Wheel of Fortune", "set": "Tarot", "effect": "Edition", "order": 11, "cost": 3, "config": {"odds": 4}},
+    "c_strength": {"name": "Strength", "set": "Tarot", "effect": "Rank Up", "order": 12, "cost": 3, "config": {"max_highlighted": 2}},
+    "c_hanged_man": {"name": "The Hanged Man", "set": "Tarot", "effect": "Destroy", "order": 13, "cost": 3, "config": {"max_highlighted": 2, "remove_card": True}},
+    "c_death": {"name": "Death", "set": "Tarot", "effect": "Copy Card", "order": 14, "cost": 3, "config": {"max_highlighted": 2}},
+    "c_temperance": {"name": "Temperance", "set": "Tarot", "effect": "Money", "order": 15, "cost": 3, "config": {}},
+    "c_devil": {"name": "The Devil", "set": "Tarot", "effect": "Enhance", "order": 16, "cost": 3, "config": {"mod_conv": "m_gold", "max_highlighted": 1}},
+    "c_tower": {"name": "The Tower", "set": "Tarot", "effect": "Enhance", "order": 17, "cost": 3, "config": {"mod_conv": "m_stone", "max_highlighted": 1}},
+    "c_star": {"name": "The Star", "set": "Tarot", "effect": "Suit Conversion", "order": 18, "cost": 3, "config": {"mod_num": 3, "suit_conv": "Diamonds", "max_highlighted": 3}},
+    "c_moon": {"name": "The Moon", "set": "Tarot", "effect": "Suit Conversion", "order": 19, "cost": 3, "config": {"mod_num": 3, "suit_conv": "Clubs", "max_highlighted": 3}},
+    "c_sun": {"name": "The Sun", "set": "Tarot", "effect": "Suit Conversion", "order": 20, "cost": 3, "config": {"mod_num": 3, "suit_conv": "Hearts", "max_highlighted": 3}},
+    "c_judgement": {"name": "Judgement", "set": "Tarot", "effect": "Create Joker", "order": 21, "cost": 3, "config": {}},
+    "c_world": {"name": "The World", "set": "Tarot", "effect": "Suit Conversion", "order": 22, "cost": 3, "config": {"mod_num": 3, "suit_conv": "Spades", "max_highlighted": 3}},
+    # Planet
+    "c_pluto": {"name": "Pluto", "set": "Planet", "effect": "Hand Upgrade", "order": 9, "cost": 3, "config": {"hand_type": "High Card"}},
+    "c_mercury": {"name": "Mercury", "set": "Planet", "effect": "Hand Upgrade", "order": 1, "cost": 3, "config": {"hand_type": "Pair"}},
+    "c_venus": {"name": "Venus", "set": "Planet", "effect": "Hand Upgrade", "order": 2, "cost": 3, "config": {"hand_type": "Three of a Kind"}},
+    "c_earth": {"name": "Earth", "set": "Planet", "effect": "Hand Upgrade", "order": 3, "cost": 3, "config": {"hand_type": "Full House"}},
+    "c_mars": {"name": "Mars", "set": "Planet", "effect": "Hand Upgrade", "order": 4, "cost": 3, "config": {"hand_type": "Four of a Kind"}},
+    "c_jupiter": {"name": "Jupiter", "set": "Planet", "effect": "Hand Upgrade", "order": 5, "cost": 3, "config": {"hand_type": "Flush"}},
+    "c_saturn": {"name": "Saturn", "set": "Planet", "effect": "Hand Upgrade", "order": 6, "cost": 3, "config": {"hand_type": "Straight"}},
+    "c_uranus": {"name": "Uranus", "set": "Planet", "effect": "Hand Upgrade", "order": 7, "cost": 3, "config": {"hand_type": "Two Pair"}},
+    "c_neptune": {"name": "Neptune", "set": "Planet", "effect": "Hand Upgrade", "order": 8, "cost": 3, "config": {"hand_type": "Straight Flush"}},
+    "c_planet_x": {"name": "Planet X", "set": "Planet", "effect": "Hand Upgrade", "order": 10, "cost": 3, "config": {"hand_type": "Five of a Kind", "softlock": True}},
+    "c_ceres": {"name": "Ceres", "set": "Planet", "effect": "Hand Upgrade", "order": 11, "cost": 3, "config": {"hand_type": "Flush House", "softlock": True}},
+    "c_eris": {"name": "Eris", "set": "Planet", "effect": "Hand Upgrade", "order": 12, "cost": 3, "config": {"hand_type": "Flush Five", "softlock": True}},
+    # Spectral
+    "c_familiar": {"name": "Familiar", "set": "Spectral", "effect": "Create", "order": 1, "cost": 4, "config": {"extra": 1}},
+    "c_grim": {"name": "Grim", "set": "Spectral", "effect": "Create", "order": 2, "cost": 4, "config": {"extra": 2}},
+    "c_incantation": {"name": "Incantation", "set": "Spectral", "effect": "Create", "order": 3, "cost": 4, "config": {"extra": 4}},
+    "c_talisman": {"name": "Talisman", "set": "Spectral", "effect": "Seal", "order": 4, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_aura": {"name": "Aura", "set": "Spectral", "effect": "Edition", "order": 5, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_wraith": {"name": "Wraith", "set": "Spectral", "effect": "Create", "order": 6, "cost": 4, "config": {}},
+    "c_sigil": {"name": "Sigil", "set": "Spectral", "effect": "Suit Conversion", "order": 7, "cost": 4, "config": {}},
+    "c_ouija": {"name": "Ouija", "set": "Spectral", "effect": "Rank Conversion", "order": 8, "cost": 4, "config": {}},
+    "c_ectoplasm": {"name": "Ectoplasm", "set": "Spectral", "effect": "Edition", "order": 9, "cost": 4, "config": {}},
+    "c_immolate": {"name": "Immolate", "set": "Spectral", "effect": "Destroy", "order": 10, "cost": 4, "config": {"destroy": 5, "dollars": 20}},
+    "c_ankh": {"name": "Ankh", "set": "Spectral", "effect": "Copy Joker", "order": 11, "cost": 4, "config": {}},
+    "c_deja_vu": {"name": "Deja Vu", "set": "Spectral", "effect": "Seal", "order": 12, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_hex": {"name": "Hex", "set": "Spectral", "effect": "Edition", "order": 13, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_trance": {"name": "Trance", "set": "Spectral", "effect": "Seal", "order": 14, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_medium": {"name": "Medium", "set": "Spectral", "effect": "Seal", "order": 15, "cost": 4, "config": {"max_highlighted": 1}},
+    "c_cryptid": {"name": "Cryptid", "set": "Spectral", "effect": "Copy Card", "order": 16, "cost": 4, "config": {"extra": 2, "max_highlighted": 1}},
+    "c_soul": {"name": "The Soul", "set": "Spectral", "effect": "Legendary", "order": 17, "cost": 4, "config": {}},
+    "c_black_hole": {"name": "Black Hole", "set": "Spectral", "effect": "Upgrade All", "order": 18, "cost": 4, "config": {}},
+}
+
+
+def _find_consumable_template(data, set_name):
+    # Prefer a card from the currently loaded save.
+    for c in get_consumables(data):
+        ability = c.get("ability", {})
+        if ability.get("set") == set_name and isinstance(ability.get("consumeable"), dict):
+            return copy.deepcopy(c)
+
+    # Fall back to local backup files if available.
+    try:
+        from save_io import read_jkr
+        candidates = [
+            r"C:\Users\jackc\AppData\Roaming\Balatro\1\save.jkr",
+            r"C:\Users\jackc\AppData\Roaming\Balatro\1\save.jkr.bak",
+            r"C:\Users\jackc\AppData\Roaming\Balatro\1\save(backup).jkr",
+            r"C:\Users\jackc\AppData\Roaming\Balatro\1\save - Copy.json",
+        ]
+        for path in candidates:
+            if not os.path.exists(path):
+                continue
+            try:
+                d = read_jkr(path)
+            except Exception:
+                continue
+            cards = d.get("cardAreas", {}).get("consumeables", {}).get("cards", {})
+            values = list(cards.values()) if isinstance(cards, dict) else list(cards)
+            for c in values:
+                ability = c.get("ability", {})
+                if ability.get("set") == set_name and isinstance(ability.get("consumeable"), dict):
+                    return copy.deepcopy(c)
+    except Exception:
+        pass
+
+    # Final fallback skeleton with known-good shape.
+    return {
+        "sprite_facing": "front",
+        "facing": "front",
+        "rank": 1,
+        "save_fields": {"center": "c_pluto"},
+        "label": "Pluto",
+        "base": {"nominal": 0, "suit_nominal": 0, "face_nominal": 0, "times_played": 0},
+        "bypass_discovery_center": True,
+        "ability": {
+            "bonus": 0,
+            "h_mult": 0,
+            "hands_played_at_create": 0,
+            "mult": 0,
+            "effect": "Hand Upgrade",
+            "order": 1,
+            "h_dollars": 0,
+            "set": set_name,
+            "consumeable": {"max_highlighted": 1},
+            "h_size": 0,
+            "t_mult": 0,
+            "extra_value": 0,
+            "x_mult": 1,
+            "perma_bonus": 0,
+            "p_dollars": 0,
+            "h_x_mult": 0,
+            "type": "",
+            "t_chips": 0,
+            "name": "Pluto",
+            "d_size": 0,
+        },
+        "base_cost": 3,
+        "params": {
+            "discover": False,
+            "bypass_back": {"y": 3, "x": 1},
+            "bypass_discovery_ui": True,
+            "bypass_discovery_center": True,
+        },
+        "sort_id": 1,
+        "debuff": False,
+        "bypass_discovery_ui": True,
+        "extra_cost": 0,
+        "bypass_lock": True,
+        "cost": 3,
+        "sell_cost": 1,
+        "added_to_deck": True,
+        "config": {"center": "c_pluto"},
+    }
+
+def remove_consumable(data, index):
+    """Remove consumable at given index."""
+    cards = _card_areas(data)["consumeables"]["cards"]
+    if isinstance(cards, list):
+        if 0 <= index < len(cards):
+            cards.pop(index)
+    elif isinstance(cards, dict):
+        int_keys = sorted([k for k in cards if isinstance(k, int)])
+        if 0 <= index < len(int_keys):
+            del cards[int_keys[index]]
+            _reindex_dict(cards)
+    
+    if "config" in _card_areas(data)["consumeables"]:
+        _card_areas(data)["consumeables"]["config"]["card_count"] = len(get_consumables(data))
+
+def add_consumable(data, center_id, edition_key="base"):
+    """Add a consumable card."""
+    cset = _consumable_set(center_id)
+    meta = _CONSUMABLE_META.get(center_id, {
+        "name": center_id,
+        "set": cset,
+        "effect": "Consume",
+        "order": 1,
+        "cost": 3 if cset != "Spectral" else 4,
+        "config": {"max_highlighted": 1},
+    })
+
+    card = _find_consumable_template(data, meta["set"])
+    card["save_fields"] = {"center": center_id}
+    card.setdefault("config", {})["center"] = center_id
+
+    ability = card.setdefault("ability", {})
+    ability["name"] = meta["name"]
+    ability["effect"] = meta["effect"]
+    ability["order"] = meta["order"]
+    ability["set"] = meta["set"]
+    ability["consumeable"] = copy.deepcopy(meta["config"])
+    ability["consumable"] = copy.deepcopy(meta["config"])
+    if "extra" in meta["config"]:
+        ability["extra"] = meta["config"]["extra"]
+    elif "extra" in ability:
+        del ability["extra"]
+
+    # Ensure required baseline ability keys exist.
+    for field, default in (
+        ("bonus", 0), ("h_mult", 0), ("hands_played_at_create", 0), ("mult", 0),
+        ("h_dollars", 0), ("h_size", 0), ("t_mult", 0), ("extra_value", 0),
+        ("x_mult", 1), ("perma_bonus", 0), ("p_dollars", 0), ("h_x_mult", 0),
+        ("type", ""), ("t_chips", 0), ("d_size", 0),
+    ):
+        ability.setdefault(field, default)
+
+    card["label"] = meta["name"]
+    card["base_cost"] = meta["cost"]
+    card["extra_cost"] = 0
+    card["cost"] = meta["cost"]
+    card["sell_cost"] = max(1, card["cost"] // 2)
+    card["debuff"] = False
+    card["rank"] = 1
+    card["facing"] = "front"
+    card["sprite_facing"] = "front"
+    card["added_to_deck"] = True
+    card["bypass_discovery_center"] = True
+    card["bypass_discovery_ui"] = True
+    card["bypass_lock"] = True
+    card.setdefault("base", {}).setdefault("nominal", 0)
+    card["base"].setdefault("suit_nominal", 0)
+    card["base"].setdefault("face_nominal", 0)
+    card["base"].setdefault("times_played", 0)
+    card.setdefault("params", {})
+    card["params"].setdefault("discover", False)
+    card["params"].setdefault("bypass_back", {"y": 3, "x": 1})
+    card["params"]["bypass_discovery_ui"] = True
+    card["params"]["bypass_discovery_center"] = True
+    cards = _card_areas(data).setdefault("consumeables", {}).setdefault("cards", {})
+    if isinstance(cards, list):
+        cards.append(card)
+    elif isinstance(cards, dict):
+        next_key = max([k for k in cards if isinstance(k, int)], default=0) + 1
+        cards[next_key] = card
+    
+    if edition_key != "base":
+        set_card_edition(card, edition_key)
+        ed = card.get("edition", {})
+        ed_cost = ((ed.get("foil") and 2) or 0) + ((ed.get("holo") and 3) or 0) + \
+                  ((ed.get("polychrome") and 5) or 0) + ((ed.get("negative") and 5) or 0)
+        card["extra_cost"] = ed_cost
+        card["cost"] = max(1, int((card["base_cost"] + ed_cost + 0.5)))
+        card["sell_cost"] = max(1, card["cost"] // 2)
+    else:
+        card.pop("edition", None)
+        
+    config = _card_areas(data)["consumeables"].setdefault("config", {})
+    count = len(get_consumables(data))
+    config["card_count"] = count
+
+    if config.get("card_limit", 2) < count:
+        config["card_limit"] = count
+        config["temp_limit"] = count
+        
+    return card
+
+def remove_playing_card(data, card_obj, area="deck"):
+    """Remove a playing card object by reference."""
+    area_dict = _card_areas(data).get(area, {})
+    cards = area_dict.get("cards", {})
+    if isinstance(cards, list):
+        if card_obj in cards:
+            cards.remove(card_obj)
+    elif isinstance(cards, dict):
+        for k, v in list(cards.items()):
+            if v is card_obj:
+                del cards[k]
+        _reindex_dict(cards)
+        
+    config = area_dict.get("config", {})
+    if "card_count" in config:
+        config["card_count"] = len([k for k in cards if isinstance(k, int)] if isinstance(cards, dict) else cards)
+
+def add_playing_card(data, suit, rank, area="deck"):
+    """Add a basic playing card to an area (default deck)."""
+    from game_data import SUIT_CODE_REV, RANK_CODE_REV, RANK_NOMINAL
+    suit_code = SUIT_CODE_REV.get(suit, "S")
+    rank_code = RANK_CODE_REV.get(rank, "A")
+    card_code = f"{suit_code}_{rank_code}"
+    
+    rank_nom = RANK_NOMINAL.get(rank, 14)
+    nom = rank_nom if rank_code not in ["J", "Q", "K"] else 10
+    
+    card = {
+        "save_fields": {"center": "c_base", "card": card_code},
+        "config": {"center": "c_base", "card": card_code},
+        "base": {
+            "suit": suit,
+            "value": rank,
+            "id": rank_nom,
+            "nominal": nom,
+            "suit_nominal": 0,
+            "times_played": 0,
+            "face_nominal": 0
+        },
+        "ability": {
+            "name": "Default Base",
+            "effect": "Base",
+            "set": "Default",
+            "mult": 0, "h_mult": 0, "h_x_mult": 0, "h_dollars": 0, "p_dollars": 0,
+            "t_mult": 0, "t_chips": 0, "x_mult": 1, "h_size": 0, "d_size": 0,
+            "type": "", "extra_value": 0, "perma_bonus": 0, "hands_played_at_create": 0
+        },
+        "sell_cost": 1,
+        "base_cost": 1,
+        "extra_cost": 0,
+        "params": {},
+        "label": "Playing Card",
+        "cost": 1,
+        "sort_id": 1,
+        "debuff": False,
+        "rank": rank_nom,
+        "playing_card": 0,
+        "facing": "front",
+        "sprite_facing": "front",
+        "seal": None
+    }
+    
+    area_dict = _card_areas(data).setdefault(area, {})
+    cards = area_dict.setdefault("cards", {})
+    if isinstance(cards, list):
+        cards.append(card)
+    elif isinstance(cards, dict):
+        next_key = max([k for k in cards if isinstance(k, int)], default=0) + 1
+        cards[next_key] = card
+        
+    config = area_dict.setdefault("config", {})
+    count = len([k for k in cards if isinstance(k, int)] if isinstance(cards, dict) else cards)
+    config["card_count"] = count
+    
+    # Assign unique playing_card id to avoid duplicates
+    max_id = 0
+    for aname in ("deck", "hand", "discard"):
+        for k, v in _card_areas(data).get(aname, {}).get("cards", {}).items() if isinstance(_card_areas(data).get(aname, {}).get("cards", {}), dict) else enumerate(_card_areas(data).get(aname, {}).get("cards", [])):
+            if isinstance(v, dict):
+                pid = v.get("playing_card")
+                if isinstance(pid, int) and pid > max_id:
+                    max_id = pid
+    card["playing_card"] = max_id + 1
+    card["params"]["playing_card"] = card["playing_card"]
+
+    if config.setdefault("card_limit", 52) < count:
+        config["card_limit"] = count
+        config["temp_limit"] = count
+        
+    return card
 
 def _all_playing_cards(data):
     """Return all playing cards across deck, hand, and discard areas."""
@@ -503,6 +866,7 @@ def set_card_enhancement(card_obj, enhancement_id):
     resetting all enhancement-driven fields from the new center's config.
     """
     card_obj["save_fields"]["center"] = enhancement_id
+    card_obj.setdefault("config", {})["center"] = enhancement_id
     ability = card_obj.setdefault("ability", {})
     cfg = _ENHANCEMENT_CONFIGS.get(enhancement_id, {})
 
@@ -683,6 +1047,90 @@ def repair_cards(data):
                                 ed[k] = v
                                 repaired += 1
                         break
+
+    # --- Playing Card ID repair (duplicate or missing playing_card ids cause crashes) ---
+    seen_ids = set()
+    max_id = 0
+    cards_to_fix = []
+    
+    for area_name, card in _all_playing_cards(data):
+        pid = card.get("playing_card")
+        if not isinstance(pid, int) or pid in seen_ids or pid <= 0:
+            cards_to_fix.append(card)
+        else:
+            seen_ids.add(pid)
+            if pid > max_id:
+                max_id = pid
+                
+    for card in cards_to_fix:
+        max_id += 1
+        card["playing_card"] = max_id
+        if "params" not in card:
+            card["params"] = {}
+        card["params"]["playing_card"] = max_id
+        repaired += 1
+
+    # --- Consumable schema repair ---
+    for c in get_consumables(data):
+        ability = c.setdefault("ability", {})
+        center = c.get("save_fields", {}).get("center", "")
+        meta = _CONSUMABLE_META.get(center)
+        expected_set = meta["set"] if meta else _consumable_set(center)
+        if ability.get("set") != expected_set:
+            ability["set"] = expected_set
+            repaired += 1
+
+        if meta:
+            if ability.get("name") != meta["name"]:
+                ability["name"] = meta["name"]
+                repaired += 1
+            if ability.get("effect") != meta["effect"]:
+                ability["effect"] = meta["effect"]
+                repaired += 1
+            if ability.get("order") != meta["order"]:
+                ability["order"] = meta["order"]
+                repaired += 1
+
+        consumeable_val = ability.get("consumeable")
+        expected_cfg = copy.deepcopy(meta["config"]) if meta else {"max_highlighted": 1}
+        if not isinstance(consumeable_val, dict):
+            ability["consumeable"] = expected_cfg
+            repaired += 1
+        elif meta and consumeable_val != expected_cfg:
+            ability["consumeable"] = expected_cfg
+            repaired += 1
+
+        if "extra" in ability["consumeable"]:
+            if ability.get("extra") != ability["consumeable"].get("extra"):
+                ability["extra"] = ability["consumeable"].get("extra")
+                repaired += 1
+        elif "extra" in ability:
+            del ability["extra"]
+            repaired += 1
+
+        consumable_val = ability.get("consumable")
+        if not isinstance(consumable_val, dict):
+            ability["consumable"] = copy.deepcopy(ability["consumeable"])
+            repaired += 1
+        elif consumable_val != ability["consumeable"]:
+            ability["consumable"] = copy.deepcopy(ability["consumeable"])
+            repaired += 1
+
+        if c.get("label") != ability.get("name"):
+            c["label"] = ability.get("name", c.get("label"))
+            repaired += 1
+
+        c.setdefault("params", {})
+        if c["params"].get("bypass_discovery_ui") is not True:
+            c["params"]["bypass_discovery_ui"] = True
+            repaired += 1
+        if c["params"].get("bypass_discovery_center") is not True:
+            c["params"]["bypass_discovery_center"] = True
+            repaired += 1
+        c.setdefault("added_to_deck", True)
+        c.setdefault("bypass_lock", True)
+        c.setdefault("bypass_discovery_ui", True)
+        c.setdefault("bypass_discovery_center", True)
 
     return repaired
 

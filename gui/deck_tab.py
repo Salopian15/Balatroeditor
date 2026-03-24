@@ -23,7 +23,7 @@ class DeckTab(ttk.Frame):
         self.app = app
         self.data = None
         self.cards = []
-        self.selected_idx = None
+        self.selected_indices = set()
         self._build()
 
     def _build(self):
@@ -103,8 +103,53 @@ class DeckTab(ttk.Frame):
         seal_combo.grid(row=1, column=5, padx=5)
         seal_combo.bind("<<ComboboxSelected>>", self._on_seal_change)
 
+        btn_container = ttk.Frame(bot)
+        btn_container.grid(row=2, column=0, columnspan=6, pady=10, sticky="w")
+        ttk.Button(btn_container, text="Remove Selected", command=self._remove_card).pack(side="left", padx=5)
+        ttk.Button(btn_container, text="Add Card to Deck", command=self._show_add_card).pack(side="left", padx=5)
+
+    def _remove_card(self):
+        if not getattr(self, 'selected_indices', None):
+            return
+        from editor_model import remove_playing_card
+        from tkinter import messagebox
+        cards_to_remove = [self.cards[i] for i in self.selected_indices]
+        for cinfo in cards_to_remove:
+            remove_playing_card(self.data, cinfo["card"], area=cinfo["area"])
+        self.app.mark_unsaved()
+        self.selected_indices.clear()
+        self.cards = get_playing_cards(self.data)
+        self._refresh_cards()
+
+    def _show_add_card(self):
+        from game_data import SUITS, RANKS
+        dlg = tk.Toplevel(self)
+        dlg.title("Add Card")
+        dlg.geometry("300x200")
+        dlg.transient(self)
+        dlg.grab_set()
+
+        ttk.Label(dlg, text="Suit:").pack(pady=(15, 0))
+        suit_var = tk.StringVar(value="Spades")
+        ttk.Combobox(dlg, textvariable=suit_var, values=SUITS, state="readonly").pack()
+
+        ttk.Label(dlg, text="Rank:").pack(pady=(15, 0))
+        rank_var = tk.StringVar(value="Ace")
+        ranks = [r[0] for r in RANKS]
+        ttk.Combobox(dlg, textvariable=rank_var, values=ranks, state="readonly").pack()
+
+        def do_add():
+            from editor_model import add_playing_card
+            add_playing_card(self.data, suit_var.get(), rank_var.get(), area="deck")
+            self.app.mark_unsaved()
+            self.cards = get_playing_cards(self.data)
+            self._refresh_cards()
+            dlg.destroy()
+
+        ttk.Button(dlg, text="Add to Deck", command=do_add).pack(pady=20)
+
     def _on_enh_change(self, event=None):
-        if self.selected_idx is None:
+        if not getattr(self, 'selected_indices', None):
             return
         enh_name = self.enh_var.get()
         enh_id = "c_base"
@@ -112,14 +157,15 @@ class DeckTab(ttk.Frame):
             if ename == enh_name:
                 enh_id = eid
                 break
-        card_obj = self.cards[self.selected_idx]["card"]
-        set_card_enhancement(card_obj, enh_id)
-        self.cards[self.selected_idx]["enhancement"] = enh_id
+        for idx in self.selected_indices:
+            card_obj = self.cards[idx]["card"]
+            set_card_enhancement(card_obj, enh_id)
+            self.cards[idx]["enhancement"] = enh_id
         self.app.mark_unsaved()
         self._refresh_cards()
 
     def _on_ed_change(self, event=None):
-        if self.selected_idx is None:
+        if not getattr(self, 'selected_indices', None):
             return
         ed_name = self.ed_var.get()
         ed_key = "base"
@@ -127,14 +173,15 @@ class DeckTab(ttk.Frame):
             if ename == ed_name:
                 ed_key = eid
                 break
-        card_obj = self.cards[self.selected_idx]["card"]
-        set_card_edition(card_obj, ed_key)
-        self.cards[self.selected_idx]["edition"] = ed_key
+        for idx in self.selected_indices:
+            card_obj = self.cards[idx]["card"]
+            set_card_edition(card_obj, ed_key)
+            self.cards[idx]["edition"] = ed_key
         self.app.mark_unsaved()
         self._refresh_cards()
 
     def _on_seal_change(self, event=None):
-        if self.selected_idx is None:
+        if not getattr(self, 'selected_indices', None):
             return
         seal_name = self.seal_var.get()
         seal_val = None
@@ -142,16 +189,17 @@ class DeckTab(ttk.Frame):
             if sname == seal_name:
                 seal_val = sid
                 break
-        card_obj = self.cards[self.selected_idx]["card"]
-        set_card_seal(card_obj, seal_val)
-        self.cards[self.selected_idx]["seal"] = seal_val
+        for idx in self.selected_indices:
+            card_obj = self.cards[idx]["card"]
+            set_card_seal(card_obj, seal_val)
+            self.cards[idx]["seal"] = seal_val
         self.app.mark_unsaved()
         self._refresh_cards()
 
     def _bulk_apply(self):
         """Apply current enhancement/edition/seal settings to all visible cards."""
-        if self.selected_idx is None:
-            return
+        if not self.selected_indices:
+            pass # Can still apply visible
         enh_name = self.enh_var.get()
         ed_name = self.ed_var.get()
         seal_name = self.seal_var.get()
@@ -186,12 +234,26 @@ class DeckTab(ttk.Frame):
         self.app.mark_unsaved()
         self._refresh_cards()
 
-    def _select_card(self, idx):
-        self.selected_idx = idx
+    def _select_card(self, idx, event=None):
+        if event and (event.state & 0x0004 or event.state & 0x0001): # Ctrl or Shift
+            if idx in self.selected_indices:
+                self.selected_indices.remove(idx)
+            else:
+                self.selected_indices.add(idx)
+        else:
+            self.selected_indices = {idx}
+
+        if not self.selected_indices:
+            self.sel_label.config(text="No card selected")
+            self._refresh_cards()
+            return
+            
         cinfo = self.cards[idx]
-        self.sel_label.config(
-            text=f"{cinfo['rank']} of {cinfo['suit']}  [{cinfo['area']}]"
-        )
+        if len(self.selected_indices) == 1:
+            self.sel_label.config(text=f"{cinfo['rank']} of {cinfo['suit']}  [{cinfo['area']}]")
+        else:
+            self.sel_label.config(text=f"{len(self.selected_indices)} cards selected")
+
         enh_display = ENHANCEMENT_MAP.get(cinfo["enhancement"], "None")
         ed_display = EDITION_MAP.get(cinfo["edition"], "None")
         seal_display = SEAL_MAP.get(cinfo["seal"], "None")
@@ -224,7 +286,7 @@ class DeckTab(ttk.Frame):
 
     def _create_card_widget(self, grid_row, grid_col, idx, cinfo):
         """Create a visual playing card widget with effect indicators."""
-        selected = (idx == self.selected_idx)
+        selected = (idx in getattr(self, 'selected_indices', set()))
         suit_col = SUIT_COLOURS.get(cinfo["suit"], "#999")
         enh_col = ENHANCEMENT_COLOURS.get(cinfo["enhancement"])
         ed_col = EDITION_COLOURS.get(cinfo["edition"])
@@ -252,9 +314,12 @@ class DeckTab(ttk.Frame):
             strip.pack(fill="x")
 
         # Rank
-        rank_text = cinfo["rank"]
-        if rank_text == "10":
+        rank_name = cinfo["rank"]
+        from game_data import RANK_CODE_REV
+        if rank_name == "10":
             rank_text = "10"
+        else:
+            rank_text = RANK_CODE_REV.get(rank_name, rank_name)
         rank_lbl = tk.Label(inner, text=rank_text, bg=bg, fg=suit_col,
                             font=("Helvetica", 16, "bold"))
         rank_lbl.pack(pady=(4, 0))
@@ -288,11 +353,11 @@ class DeckTab(ttk.Frame):
 
         # Click to select
         for widget in [card, inner, rank_lbl, suit_lbl, area_lbl]:
-            widget.bind("<Button-1>", lambda e, i=idx: self._select_card(i))
+            widget.bind("<Button-1>", lambda e, i=idx: self._select_card(i, e))
 
     def load_data(self, data):
         self.data = data
-        self.selected_idx = None
+        self.selected_indices = set()
         self.cards = get_playing_cards(data)
         self._refresh_cards()
 

@@ -28,10 +28,10 @@ class DeckTab(ttk.Frame):
 
     def _build(self):
         # ── Top: card grid ──
-        top = ttk.LabelFrame(self, text="Deck Cards", padding=5)
+        top = ttk.LabelFrame(self, text="  Deck Cards", padding=5)
         top.pack(fill="both", expand=True, padx=10, pady=(10, 5))
 
-        # Area filter
+        # Area filter + card count
         filter_row = ttk.Frame(top)
         filter_row.pack(fill="x", pady=(0, 5))
         ttk.Label(filter_row, text="Show:").pack(side="left", padx=(0, 5))
@@ -41,11 +41,9 @@ class DeckTab(ttk.Frame):
                             variable=self.area_var, value=area,
                             command=self._refresh_cards).pack(side="left", padx=4)
 
-        # Bulk edit
-        ttk.Separator(filter_row, orient="vertical").pack(side="left", padx=10, fill="y")
-        ttk.Label(filter_row, text="Bulk:").pack(side="left", padx=(0, 5))
-        ttk.Button(filter_row, text="Apply to All Visible",
-                   command=self._bulk_apply).pack(side="left", padx=4)
+        self.count_var = tk.StringVar(value="")
+        ttk.Label(filter_row, textvariable=self.count_var,
+                  foreground="#aaaaaa", font=("Helvetica", 10)).pack(side="left", padx=10)
 
         # Card grid (scrollable)
         grid_container = ttk.Frame(top)
@@ -69,39 +67,46 @@ class DeckTab(ttk.Frame):
         bind_mousewheel(self.card_canvas)
 
         # ── Bottom: edit panel for selected card ──
-        bot = ttk.LabelFrame(self, text="Edit Selected Card", padding=10)
+        bot = ttk.LabelFrame(self, text="  Edit Card", padding=10)
         bot.pack(fill="x", padx=10, pady=(5, 10))
 
-        self.sel_label = ttk.Label(bot, text="No card selected",
-                                   font=("Helvetica", 13, "bold"))
-        self.sel_label.grid(row=0, column=0, columnspan=6, pady=(0, 8), sticky="w")
+        self.sel_label = ttk.Label(bot, text="Select a card above to edit it",
+                                   font=("Helvetica", 12), foreground="#aaaaaa")
+        self.sel_label.grid(row=0, column=0, columnspan=7, pady=(0, 8), sticky="w")
 
         # Enhancement
-        ttk.Label(bot, text="Enhancement:").grid(row=1, column=0, sticky="w", padx=5)
+        ttk.Label(bot, text="Enhancement:").grid(row=1, column=0, sticky="w", padx=(0, 4))
         self.enh_var = tk.StringVar(value="None")
         enh_combo = ttk.Combobox(bot, textvariable=self.enh_var,
                                  values=[e[1] for e in ENHANCEMENTS],
                                  state="readonly", width=14)
-        enh_combo.grid(row=1, column=1, padx=5)
+        enh_combo.grid(row=1, column=1, padx=(0, 12))
         enh_combo.bind("<<ComboboxSelected>>", self._on_enh_change)
 
         # Edition
-        ttk.Label(bot, text="Edition:").grid(row=1, column=2, sticky="w", padx=5)
+        ttk.Label(bot, text="Edition:").grid(row=1, column=2, sticky="w", padx=(0, 4))
         self.ed_var = tk.StringVar(value="None")
         ed_combo = ttk.Combobox(bot, textvariable=self.ed_var,
                                 values=[e[1] for e in EDITIONS],
                                 state="readonly", width=14)
-        ed_combo.grid(row=1, column=3, padx=5)
+        ed_combo.grid(row=1, column=3, padx=(0, 12))
         ed_combo.bind("<<ComboboxSelected>>", self._on_ed_change)
 
         # Seal
-        ttk.Label(bot, text="Seal:").grid(row=1, column=4, sticky="w", padx=5)
+        ttk.Label(bot, text="Seal:").grid(row=1, column=4, sticky="w", padx=(0, 4))
         self.seal_var = tk.StringVar(value="None")
         seal_combo = ttk.Combobox(bot, textvariable=self.seal_var,
                                   values=[s[1] for s in SEALS],
                                   state="readonly", width=14)
-        seal_combo.grid(row=1, column=5, padx=5)
+        seal_combo.grid(row=1, column=5, padx=(0, 16))
         seal_combo.bind("<<ComboboxSelected>>", self._on_seal_change)
+
+        # Bulk apply sits in the same row, right-aligned
+        ttk.Button(bot, text="Apply to All Visible",
+                   command=self._bulk_apply).grid(row=1, column=6, padx=(4, 0))
+        ttk.Label(bot, text="(applies current settings to all visible cards)",
+                  foreground="#666677", font=("Helvetica", 9)
+                  ).grid(row=2, column=0, columnspan=7, sticky="w", pady=(4, 0))
 
     def _on_enh_change(self, event=None):
         if self.selected_idx is None:
@@ -150,7 +155,7 @@ class DeckTab(ttk.Frame):
 
     def _bulk_apply(self):
         """Apply current enhancement/edition/seal settings to all visible cards."""
-        if self.selected_idx is None:
+        if not self.cards:
             return
         enh_name = self.enh_var.get()
         ed_name = self.ed_var.get()
@@ -190,7 +195,8 @@ class DeckTab(ttk.Frame):
         self.selected_idx = idx
         cinfo = self.cards[idx]
         self.sel_label.config(
-            text=f"{cinfo['rank']} of {cinfo['suit']}  [{cinfo['area']}]"
+            text=f"{cinfo['rank']} of {cinfo['suit']}  \u2014  {cinfo['area']}",
+            foreground="#e0e0e0",
         )
         enh_display = ENHANCEMENT_MAP.get(cinfo["enhancement"], "None")
         ed_display = EDITION_MAP.get(cinfo["edition"], "None")
@@ -208,19 +214,28 @@ class DeckTab(ttk.Frame):
             lbl = tk.Label(self.card_inner, text="No cards found",
                            fg="#888", bg="#1a1a2e", font=("Helvetica", 13))
             lbl.grid(row=0, column=0, padx=20, pady=30)
+            self.count_var.set("")
             return
 
         area_filter = self.area_var.get()
         col = 0
         row = 0
+        visible = 0
         for i, cinfo in enumerate(self.cards):
             if area_filter != "All" and cinfo["area"] != area_filter:
                 continue
             self._create_card_widget(row, col, i, cinfo)
+            visible += 1
             col += 1
             if col >= 8:
                 col = 0
                 row += 1
+
+        total = len(self.cards)
+        if visible == total:
+            self.count_var.set(f"{total} cards")
+        else:
+            self.count_var.set(f"{visible} of {total} cards")
 
     def _create_card_widget(self, grid_row, grid_col, idx, cinfo):
         """Create a visual playing card widget with effect indicators."""

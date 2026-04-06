@@ -69,7 +69,7 @@ class JokerTab(ttk.Frame):
 
     def _build(self):
         # ── Top: current jokers list ──
-        top = ttk.LabelFrame(self, text="Current Jokers", padding=10)
+        top = ttk.LabelFrame(self, text="  Current Jokers", padding=10)
         top.pack(fill="both", expand=True, padx=10, pady=(10, 5))
 
         # Scrollable frame for joker cards (horizontal)
@@ -97,15 +97,21 @@ class JokerTab(ttk.Frame):
         # Keep references to PhotoImages so they aren't garbage-collected
         self._card_images = []
 
-        # Description panel for selected joker
+        # Joker count + description panel
+        info_row = ttk.Frame(top)
+        info_row.pack(fill="x", pady=(5, 0))
+
+        self.joker_count_var = tk.StringVar(value="")
+        tk.Label(info_row, textvariable=self.joker_count_var,
+                 bg="#16213e", fg="#aaaaaa", font=("Helvetica", 10),
+                 padx=10, pady=4).pack(side="left")
+
         self.desc_var = tk.StringVar(value="Click a joker above to see its effect")
-        desc_frame = ttk.Frame(top)
-        desc_frame.pack(fill="x", pady=(5, 0))
-        self.desc_label = tk.Label(desc_frame, textvariable=self.desc_var,
-                                   bg="#16213e", fg="#ddd", anchor="w",
+        self.desc_label = tk.Label(info_row, textvariable=self.desc_var,
+                                   bg="#16213e", fg="#dddddd", anchor="w",
                                    font=("Helvetica", 12), padx=10, pady=6,
-                                   wraplength=700, justify="left")
-        self.desc_label.pack(fill="x")
+                                   wraplength=650, justify="left")
+        self.desc_label.pack(side="left", fill="x", expand=True)
 
         # ── Middle: edition selector + remove button ──
         mid = ttk.Frame(self)
@@ -138,7 +144,7 @@ class JokerTab(ttk.Frame):
                    ).pack(side="right", padx=5)
 
         # ── Bottom: joker picker ──
-        bot = ttk.LabelFrame(self, text="Add Joker", padding=10)
+        bot = ttk.LabelFrame(self, text="  Add Joker", padding=10)
         bot.pack(fill="both", expand=True, padx=10, pady=(5, 10))
 
         # Search
@@ -314,14 +320,21 @@ class JokerTab(ttk.Frame):
             w.destroy()
 
         if not self.data:
+            self.joker_count_var.set("")
             return
 
         jokers = get_jokers(self.data)
+        max_j = get_max_jokers(self.data)
+
         if not jokers:
-            lbl = tk.Label(self.joker_inner, text="No jokers — add one below!",
+            self.joker_count_var.set("0 jokers")
+            lbl = tk.Label(self.joker_inner, text="No jokers \u2014 add one below!",
                            fg="#888", bg="#1a1a2e", font=("Helvetica", 13))
             lbl.pack(padx=20, pady=30)
             return
+
+        count = len(jokers)
+        self.joker_count_var.set(f"{count}/{max_j} jokers")
 
         for i, joker in enumerate(jokers):
             info = get_joker_info(joker)

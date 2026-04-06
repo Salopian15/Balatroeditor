@@ -60,6 +60,8 @@ def list_backups(save_filename="save.jkr"):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.withdraw()  # Hide window while building to prevent jitter
+
         self.title("Balatro Save Editor")
         self.geometry("960x720")
         self.minsize(800, 600)
@@ -69,10 +71,90 @@ class App(tk.Tk):
         self.save_path = None
         self._unsaved = False
 
+        self._apply_theme()
         self._build_menu()
         self._build_ui()
         self._init_sprites()
+
+        # Centre on screen before showing
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - 960) // 2
+        y = (sh - 720) // 2
+        self.geometry(f"960x720+{x}+{y}")
+
+        # Load save while still hidden so it appears fully rendered
         self._auto_detect()
+        self.deiconify()
+
+    def _apply_theme(self):
+        """Configure ttk styles to match the dark colour scheme."""
+        style = ttk.Style(self)
+        # Use a base theme that is cross-platform
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        bg_dark  = "#0f0f23"
+        bg_mid   = "#1a1a2e"
+        bg_panel = "#16213e"
+        accent   = "#27ae60"
+        fg       = "#e0e0e0"
+        fg_dim   = "#aaaaaa"
+        border   = "#333355"
+
+        style.configure(".",
+            background=bg_dark, foreground=fg,
+            fieldbackground=bg_mid, troughcolor=bg_mid,
+            bordercolor=border, relief="flat",
+            font=("Helvetica", 12),
+        )
+        style.configure("TFrame", background=bg_dark)
+        style.configure("TLabel", background=bg_dark, foreground=fg)
+        style.configure("TLabelframe",
+            background=bg_dark, foreground=fg_dim,
+            bordercolor=border, relief="groove",
+        )
+        style.configure("TLabelframe.Label",
+            background=bg_dark, foreground=fg_dim, font=("Helvetica", 11),
+        )
+        style.configure("TNotebook",
+            background=bg_dark, bordercolor=border, tabmargins=[2, 4, 2, 0],
+        )
+        style.configure("TNotebook.Tab",
+            background=bg_mid, foreground=fg_dim,
+            padding=[12, 6], font=("Helvetica", 12),
+        )
+        style.map("TNotebook.Tab",
+            background=[("selected", bg_panel)],
+            foreground=[("selected", fg)],
+        )
+        style.configure("TButton",
+            background=bg_mid, foreground=fg,
+            bordercolor=border, relief="raised", padding=[8, 4],
+        )
+        style.map("TButton",
+            background=[("active", bg_panel)],
+        )
+        style.configure("TCombobox",
+            background=bg_mid, foreground=fg,
+            fieldbackground=bg_mid, selectbackground=accent,
+        )
+        style.configure("TSpinbox",
+            background=bg_mid, foreground=fg, fieldbackground=bg_mid,
+        )
+        style.configure("TEntry",
+            background=bg_mid, foreground=fg, fieldbackground=bg_mid,
+            insertcolor=fg,
+        )
+        style.configure("TScrollbar",
+            background=bg_mid, troughcolor=bg_dark, bordercolor=border,
+        )
+        style.configure("TSeparator", background=border)
+        style.configure("TRadiobutton", background=bg_dark, foreground=fg)
+        style.configure("TCheckbutton", background=bg_dark, foreground=fg)
 
     def mark_unsaved(self):
         """Call this whenever data is changed to flag unsaved state."""
@@ -111,38 +193,71 @@ class App(tk.Tk):
 
     def _build_ui(self):
         # ── Bottom bar: status + save button ──
-        bottom = ttk.Frame(self)
+        bottom = tk.Frame(self, bg="#0d0d1f", pady=0)
         bottom.pack(fill="x", side="bottom")
 
-        self.status_var = tk.StringVar(value="No save loaded")
-        status = ttk.Label(bottom, textvariable=self.status_var,
-                           font=("Helvetica", 11), anchor="w", padding=(10, 4))
+        # Thin accent line above the bar
+        tk.Frame(bottom, bg="#27ae60", height=2).pack(fill="x")
+
+        bar = tk.Frame(bottom, bg="#0d0d1f")
+        bar.pack(fill="x")
+
+        self.status_var = tk.StringVar(value="No save loaded — use File > Open Save or place a save.jkr in the Balatro folder")
+        status = tk.Label(bar, textvariable=self.status_var,
+                          bg="#0d0d1f", fg="#aaaaaa",
+                          font=("Helvetica", 11), anchor="w", padx=12, pady=6)
         status.pack(fill="x", side="left", expand=True)
 
         self.save_btn = tk.Button(
-            bottom, text="💾  Save Changes", command=self._save_file,
+            bar, text="  Save Changes", command=self._save_file,
             bg="#27ae60", fg="white", activebackground="#2ecc71",
             activeforeground="white", font=("Helvetica", 12, "bold"),
-            padx=16, pady=6, relief="raised", bd=1, state="disabled",
+            padx=16, pady=6, relief="flat", bd=0, state="disabled",
+            cursor="hand2",
         )
-        self.save_btn.pack(side="right", padx=10, pady=6)
+        self.save_btn.pack(side="right", padx=10, pady=5)
 
-        # Tab notebook
+        # ── Welcome banner (shown when no save is loaded) ──
+        self.welcome_frame = tk.Frame(self, bg="#0f0f23")
+        self.welcome_frame.pack(fill="both", expand=True)
+
+        inner = tk.Frame(self.welcome_frame, bg="#16213e", padx=40, pady=40)
+        inner.place(relx=0.5, rely=0.5, anchor="center")
+
+        tk.Label(inner, text="Balatro Save Editor",
+                 bg="#16213e", fg="#e0e0e0",
+                 font=("Helvetica", 22, "bold")).pack(pady=(0, 6))
+        tk.Label(inner, text="No save file loaded",
+                 bg="#16213e", fg="#888",
+                 font=("Helvetica", 14)).pack(pady=(0, 20))
+
+        tk.Button(inner, text="  Open Save File…",
+                  command=self._open_file,
+                  bg="#27ae60", fg="white", activebackground="#2ecc71",
+                  activeforeground="white", font=("Helvetica", 13, "bold"),
+                  padx=20, pady=10, relief="flat", bd=0, cursor="hand2",
+                  ).pack(pady=(0, 8))
+        tk.Label(inner,
+                 text="Or place your save.jkr in the default Balatro folder\n"
+                      "and it will be detected automatically on next launch.",
+                 bg="#16213e", fg="#666",
+                 font=("Helvetica", 11), justify="center").pack()
+
+        # ── Tab notebook (hidden until a save is loaded) ──
         self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill="both", expand=True, padx=5, pady=5)
 
         self.general_tab = GeneralTab(self.notebook, self)
         self.joker_tab = JokerTab(self.notebook, self)
         self.deck_tab = DeckTab(self.notebook, self)
 
-        self.notebook.add(self.general_tab, text="  ⚙ General  ")
-        self.notebook.add(self.joker_tab, text="  🃏 Jokers  ")
-        self.notebook.add(self.deck_tab, text="  🂠 Deck  ")
+        self.notebook.add(self.general_tab, text="  General  ")
+        self.notebook.add(self.joker_tab, text="  Jokers  ")
+        self.notebook.add(self.deck_tab, text="  Deck  ")
 
     def _update_title(self):
         base = "Balatro Save Editor"
         if self._unsaved:
-            self.title(f"● {base} — unsaved changes")
+            self.title(f"\u25cf {base} \u2014 unsaved changes")
             self.save_btn.config(state="normal")
         else:
             self.title(base)
@@ -300,16 +415,23 @@ class App(tk.Tk):
 
         # Auto-repair any cards with broken enhancement configs
         repaired = repair_cards(self.data)
+
+        # Show a short display name instead of full path
+        short = os.path.basename(os.path.dirname(path)) + "/" + os.path.basename(path)
         if repaired:
-            self.status_var.set(f"Loaded: {path}  (repaired {repaired} card field(s))")
+            self.status_var.set(f"Loaded: {short}  \u2014  repaired {repaired} card field(s)")
         else:
-            self.status_var.set(f"Loaded: {path}")
+            self.status_var.set(f"Loaded: {short}")
 
         self._unsaved = repaired > 0
         self._update_title()
         self.general_tab.load_data(self.data)
         self.joker_tab.load_data(self.data)
         self.deck_tab.load_data(self.data)
+
+        # Switch from welcome screen to tab view
+        self.welcome_frame.pack_forget()
+        self.notebook.pack(fill="both", expand=True, padx=5, pady=5)
 
     def _save_file(self):
         if not self.data or not self.save_path:
@@ -340,9 +462,9 @@ class App(tk.Tk):
             self.save_path = path
             self._unsaved = False
             self._update_title()
-            self.status_var.set(f"Saved: {path}")
-            messagebox.showinfo("Success", "Save written successfully!\n"
-                                "A timestamped backup was created in\n"
-                                f"{BACKUPS_DIR}")
+            short = os.path.basename(os.path.dirname(path)) + "/" + os.path.basename(path)
+            self.status_var.set(f"Saved: {short}")
+            messagebox.showinfo("Saved", "Save written successfully!\n"
+                                "A timestamped backup was created automatically.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save:\n{e}")

@@ -16,6 +16,7 @@ from editor_model import repair_cards
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
+import sprites
 
 
 BACKUPS_DIR = os.path.join(SAVE_DIR, ".editor_backups")
@@ -70,6 +71,7 @@ class App(tk.Tk):
 
         self._build_menu()
         self._build_ui()
+        self._init_sprites()
         self._auto_detect()
 
     def mark_unsaved(self):
@@ -96,6 +98,12 @@ class App(tk.Tk):
         file_menu.add_command(label="Quit", command=self.quit,
                               accelerator=f"{mod_key}Q")
         menubar.add_cascade(label="File", menu=file_menu)
+
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="Set Balatro Game Folder…",
+                                  command=self._browse_game_dir)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+
         self.config(menu=menubar)
 
         self.bind_all(f"<{bind_key}-o>", lambda e: self._open_file())
@@ -147,6 +155,32 @@ class App(tk.Tk):
             # Load the first profile's save
             path = os.path.join(profiles[0], "save.jkr")
             self._load_save(path)
+
+    def _init_sprites(self):
+        """Try to auto-detect the Balatro game directory for card images."""
+        love_path = sprites.auto_detect_love_path()
+        if love_path:
+            sprites.set_love_path(love_path)
+
+    def _browse_game_dir(self):
+        """Let the user manually select Balatro.love for card images."""
+        path = filedialog.askopenfilename(
+            title="Select Balatro.love",
+            filetypes=[("LÖVE archive", "*.love"), ("All Files", "*.*")],
+        )
+        if path:
+            sprites.set_love_path(path)
+            if sprites.is_available():
+                messagebox.showinfo("Success",
+                                    "Joker sprites loaded!\n"
+                                    "Card images will appear in the Jokers tab.")
+                # Refresh the joker list to show images
+                if self.data:
+                    self.joker_tab._refresh_joker_list()
+            else:
+                messagebox.showwarning("Warning",
+                                       "Could not load sprites from that file.\n"
+                                       "Make sure you selected a valid Balatro.love archive.")
 
     def _show_backups(self):
         """Show a dialog to view and restore from timestamped backups."""

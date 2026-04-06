@@ -330,6 +330,13 @@ def remove_joker(data, index):
             _reindex_dict(cards)
     _card_areas(data)["jokers"]["config"]["card_count"] = len(get_jokers(data))
 
+    # Auto-scale: shrink card_limit to match remaining joker count
+    joker_count = len(get_jokers(data))
+    cfg = _card_areas(data)["jokers"]["config"]
+    cfg["card_limit"] = max(0, joker_count)
+    cfg["temp_limit"] = max(0, joker_count)
+    _game(data)["max_jokers"] = max(0, joker_count)
+
 
 def add_joker(data, joker_id, edition_key="base"):
     """Add a new joker to the active jokers with proper ability config from game source."""
@@ -419,6 +426,14 @@ def add_joker(data, joker_id, edition_key="base"):
     if edition_key == "negative":
         cfg = _card_areas(data)["jokers"]["config"]
         cfg["card_limit"] = cfg.get("card_limit", 5) + 1
+
+    # Auto-scale: ensure card_limit is at least the current joker count
+    joker_count = len(get_jokers(data))
+    cfg = _card_areas(data)["jokers"]["config"]
+    if joker_count > cfg.get("card_limit", 5):
+        cfg["card_limit"] = joker_count
+        cfg["temp_limit"] = joker_count
+        _game(data)["max_jokers"] = joker_count
 
     return joker
 

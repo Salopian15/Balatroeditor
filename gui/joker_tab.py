@@ -9,9 +9,10 @@ from game_data import (
 )
 from editor_model import (
     get_jokers, get_joker_info, set_joker_edition, set_joker_modifier,
-    add_joker, remove_joker, MODIFIER_FLAGS,
+    add_joker, remove_joker, MODIFIER_FLAGS, get_max_jokers,
 )
-from gui import bind_mousewheel
+from gui import bind_mousewheel, bind_mousewheel_horizontal
+from sprites import get_joker_tk_image, is_available as sprites_available
 
 
 # Rarity groupings for the joker picker
@@ -71,16 +72,30 @@ class JokerTab(ttk.Frame):
         top = ttk.LabelFrame(self, text="Current Jokers", padding=10)
         top.pack(fill="both", expand=True, padx=10, pady=(10, 5))
 
-        # Scrollable frame for joker cards
-        self.joker_canvas = tk.Canvas(top, height=180, bg="#1a1a2e",
+        # Scrollable frame for joker cards (horizontal)
+        canvas_frame = ttk.Frame(top)
+        canvas_frame.pack(fill="both", expand=True)
+
+        self.joker_canvas = tk.Canvas(canvas_frame, height=200, bg="#1a1a2e",
                                       highlightthickness=0)
+        joker_hscroll = ttk.Scrollbar(canvas_frame, orient="horizontal",
+                                      command=self.joker_canvas.xview)
+        self.joker_canvas.configure(xscrollcommand=joker_hscroll.set)
         self.joker_canvas.pack(fill="both", expand=True)
+        joker_hscroll.pack(fill="x")
+
         self.joker_inner = tk.Frame(self.joker_canvas, bg="#1a1a2e")
         self.joker_canvas.create_window((0, 0), window=self.joker_inner,
                                         anchor="nw")
         self.joker_inner.bind("<Configure>",
                               lambda e: self.joker_canvas.configure(
                                   scrollregion=self.joker_canvas.bbox("all")))
+
+        # Horizontal mousewheel / trackpad scrolling
+        bind_mousewheel_horizontal(self.joker_canvas)
+
+        # Keep references to PhotoImages so they aren't garbage-collected
+        self._card_images = []
 
         # Description panel for selected joker
         self.desc_var = tk.StringVar(value="Click a joker above to see its effect")
@@ -229,6 +244,7 @@ class JokerTab(ttk.Frame):
                 break
         add_joker(self.data, joker_id, ed_key)
         self.app.mark_unsaved()
+        self._sync_max_jokers()
         self._refresh_joker_list()
 
     def _remove_selected(self):
@@ -236,6 +252,7 @@ class JokerTab(ttk.Frame):
             remove_joker(self.data, self.selected_idx)
             self.selected_idx = None
             self.app.mark_unsaved()
+            self._sync_max_jokers()
             self._refresh_joker_list()
 
     def _on_edition_change(self, event=None):
@@ -281,7 +298,18 @@ class JokerTab(ttk.Frame):
                 self._modifier_vars[flag].set(False)
         self._refresh_joker_list()
 
+    def _sync_max_jokers(self):
+        """Keep the General tab spinner in sync with the model's card_limit."""
+        if not self.data:
+            return
+        try:
+            cur = get_max_jokers(self.data)
+            self.app.general_tab.fields["max_jokers"].set(cur)
+        except (AttributeError, KeyError):
+            pass
+
     def _refresh_joker_list(self):
+        self._card_images = []  # reset image references
         for w in self.joker_inner.winfo_children():
             w.destroy()
 
@@ -301,9 +329,10 @@ class JokerTab(ttk.Frame):
             self._create_joker_card(i, info, is_selected)
 
     def _create_joker_card(self, idx, info, selected):
-        """Create a visual joker card widget with edition indicator."""
+        """Create a visual joker card widget with edition indicator and optional image."""
         ed_key = info["edition"]
         ed_colour = EDITION_COLOURS.get(ed_key)
+        has_image = sprites_available()
 
         # Card frame
         border_col = "#f39c12" if selected else (ed_colour or "#333")
@@ -312,30 +341,45 @@ class JokerTab(ttk.Frame):
         card = tk.Frame(self.joker_inner, bg=border_col, padx=3, pady=3)
         card.pack(side="left", padx=6, pady=8)
 
-        inner = tk.Frame(card, bg=bg, width=120, height=140)
+        card_w = 100 if has_image else 120
+        card_h = 170 if has_image else 140
+        inner = tk.Frame(card, bg=bg, width=card_w, height=card_h)
         inner.pack_propagate(False)
         inner.pack()
 
         # Edition indicator strip at top
         if ed_colour:
-            strip = tk.Frame(inner, bg=ed_colour, height=6)
+            strip = tk.Frame(inner, bg=ed_colour, height=4)
             strip.pack(fill="x")
 
-        # Joker name
+        clickables = [card, inner]
+
+        # Joker sprite image
+        if has_image:
+            tk_img = get_joker_tk_image(info["id"], width=80, height=107)
+            if tk_img:
+                self._card_images.append(tk_img)
+                img_lbl = tk.Label(inner, image=tk_img, bg=bg, bd=0)
+                img_lbl.pack(pady=(4, 0))
+                clickables.append(img_lbl)
+
+        # Joker name (smaller when image is present)
+        name_font = ("Helvetica", 9, "bold") if has_image else ("Helvetica", 11, "bold")
         name_lbl = tk.Label(inner, text=info["name"], bg=bg, fg="white",
-                            font=("Helvetica", 11, "bold"), wraplength=110,
+                            font=name_font, wraplength=card_w - 10,
                             justify="center")
-        name_lbl.pack(expand=True, padx=4, pady=(8, 2))
+        name_lbl.pack(padx=4, pady=(2 if has_image else 8, 0))
+        clickables.append(name_lbl)
 
         # Edition badge
         if ed_key != "base":
             ed_display = EDITION_MAP.get(ed_key, "")
             badge_bg = ed_colour or "#555"
-            # Choose contrasting text color
             badge_fg = "white" if ed_key != "foil" else "#1a1a2e"
             badge = tk.Label(inner, text=ed_display, bg=badge_bg, fg=badge_fg,
-                             font=("Helvetica", 9, "bold"), padx=4, pady=1)
-            badge.pack(pady=(0, 4))
+                             font=("Helvetica", 8, "bold"), padx=3, pady=0)
+            badge.pack(pady=(0, 2))
+            clickables.append(badge)
 
         # Modifier badges
         _mod_colours = {
@@ -345,24 +389,17 @@ class JokerTab(ttk.Frame):
         active_mods = [f for f in MODIFIER_FLAGS if info.get(f)]
         if active_mods:
             mod_frame = tk.Frame(inner, bg=bg)
-            mod_frame.pack(pady=(0, 2))
+            mod_frame.pack(pady=(0, 1))
             for mod in active_mods:
                 mlbl = tk.Label(mod_frame, text=mod[:4].upper(),
                                 bg=_mod_colours.get(mod, "#555"), fg="white",
                                 font=("Helvetica", 7, "bold"), padx=2, pady=0)
                 mlbl.pack(side="left", padx=1)
-                mlbl.bind("<Button-1>", lambda e, i=idx: self._select_joker(i))
+                clickables.append(mlbl)
 
-        # ID label
-        id_lbl = tk.Label(inner, text=info["id"], bg=bg, fg="#666",
-                          font=("Helvetica", 8))
-        id_lbl.pack(pady=(0, 4))
-
-        # Click to select
-        for widget in [card, inner, name_lbl, id_lbl]:
+        # Click to select — bind all child widgets
+        for widget in clickables:
             widget.bind("<Button-1>", lambda e, i=idx: self._select_joker(i))
-        if ed_key != "base":
-            badge.bind("<Button-1>", lambda e, i=idx: self._select_joker(i))
 
     def load_data(self, data):
         self.data = data

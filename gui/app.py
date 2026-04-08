@@ -12,11 +12,15 @@ from datetime import datetime
 IS_MAC = sys.platform == "darwin"
 
 from save_io import find_profiles, read_save, write_save, read_jkr, write_jkr, SAVE_DIR
-from editor_model import repair_cards
+from editor_model import repair_cards, detect_modded_content
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
+<<<<<<< HEAD
 import sprites
+=======
+from gui.consumable_tab import ConsumableTab
+>>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
 
 
 BACKUPS_DIR = os.path.join(SAVE_DIR, ".editor_backups")
@@ -249,10 +253,18 @@ class App(tk.Tk):
         self.general_tab = GeneralTab(self.notebook, self)
         self.joker_tab = JokerTab(self.notebook, self)
         self.deck_tab = DeckTab(self.notebook, self)
+        self.consumable_tab = ConsumableTab(self.notebook, self)
 
+<<<<<<< HEAD
         self.notebook.add(self.general_tab, text="  General  ")
         self.notebook.add(self.joker_tab, text="  Jokers  ")
         self.notebook.add(self.deck_tab, text="  Deck  ")
+=======
+        self.notebook.add(self.general_tab, text="  ⚙ General  ")
+        self.notebook.add(self.joker_tab, text="  🃏 Jokers  ")
+        self.notebook.add(self.consumable_tab, text="  🔮 Consumables  ")
+        self.notebook.add(self.deck_tab, text="  🂠 Deck  ")
+>>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
 
     def _update_title(self):
         base = "Balatro Save Editor"
@@ -413,6 +425,7 @@ class App(tk.Tk):
             messagebox.showerror("Error", f"Failed to load save:\n{e}")
             return
 
+<<<<<<< HEAD
         # Auto-repair any cards with broken enhancement configs
         repaired = repair_cards(self.data)
 
@@ -422,12 +435,29 @@ class App(tk.Tk):
             self.status_var.set(f"Loaded: {short}  \u2014  repaired {repaired} card field(s)")
         else:
             self.status_var.set(f"Loaded: {short}")
+=======
+        # Auto-repair can overwrite values that some mods intentionally set.
+        mod_info = detect_modded_content(self.data)
+        if mod_info["is_modded"]:
+            reason = ", ".join(mod_info["reasons"])
+            self.status_var.set(
+                f"Loaded: {path}  (modded content detected; skipped auto-repair: {reason})"
+            )
+            repaired = 0
+        else:
+            repaired = repair_cards(self.data)
+            if repaired:
+                self.status_var.set(f"Loaded: {path}  (repaired {repaired} card field(s))")
+            else:
+                self.status_var.set(f"Loaded: {path}")
+>>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
 
         self._unsaved = repaired > 0
         self._update_title()
         self.general_tab.load_data(self.data)
         self.joker_tab.load_data(self.data)
         self.deck_tab.load_data(self.data)
+        self.consumable_tab.load_data(self.data)
 
         # Switch from welcome screen to tab view
         self.welcome_frame.pack_forget()

@@ -3,6 +3,7 @@ Main application window — tab layout, file loading/saving, backup/restore.
 """
 
 import sys
+import copy
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
@@ -16,11 +17,8 @@ from editor_model import repair_cards, detect_modded_content
 from gui.general_tab import GeneralTab
 from gui.joker_tab import JokerTab
 from gui.deck_tab import DeckTab
-<<<<<<< HEAD
-import sprites
-=======
 from gui.consumable_tab import ConsumableTab
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
+import sprites
 
 
 BACKUPS_DIR = os.path.join(SAVE_DIR, ".editor_backups")
@@ -74,6 +72,7 @@ class App(tk.Tk):
         self.data = None
         self.save_path = None
         self._unsaved = False
+        self._undo_stack = []   # list of deep-copied data snapshots (max 20)
 
         self._apply_theme()
         self._build_menu()
@@ -160,11 +159,46 @@ class App(tk.Tk):
         style.configure("TRadiobutton", background=bg_dark, foreground=fg)
         style.configure("TCheckbutton", background=bg_dark, foreground=fg)
 
-    def mark_unsaved(self):
-        """Call this whenever data is changed to flag unsaved state."""
+    def mark_unsaved(self, push_undo=True):
+        """Call this whenever data is changed to flag unsaved state.
+
+        Passing push_undo=True (default) saves a snapshot of the current data
+        to the undo stack before the caller applies their change.
+        """
+        if push_undo and self.data is not None:
+            self._push_undo_snapshot()
         if not self._unsaved:
             self._unsaved = True
             self._update_title()
+
+    def _push_undo_snapshot(self):
+        """Deep-copy the current data onto the undo stack (max 20 entries)."""
+        try:
+            snapshot = copy.deepcopy(self.data)
+            self._undo_stack.append(snapshot)
+            if len(self._undo_stack) > 20:
+                self._undo_stack.pop(0)
+            # Keep the Edit menu Undo item enabled
+            if hasattr(self, "_undo_menu_item"):
+                self.edit_menu.entryconfig(self._undo_menu_item, state="normal")
+        except Exception:
+            pass  # deepcopy can fail on unusual structures; undo just won't work
+
+    def _undo(self):
+        """Restore the most recent undo snapshot."""
+        if not self._undo_stack:
+            return
+        self.data = self._undo_stack.pop()
+        if not self._undo_stack:
+            if hasattr(self, "_undo_menu_item"):
+                self.edit_menu.entryconfig(self._undo_menu_item, state="disabled")
+        self._unsaved = True
+        self._update_title()
+        self.general_tab.load_data(self.data)
+        self.joker_tab.load_data(self.data)
+        self.deck_tab.load_data(self.data)
+        self.consumable_tab.load_data(self.data)
+        self.status_var.set("Undo complete")
 
     def _build_menu(self):
         menubar = tk.Menu(self)
@@ -174,6 +208,19 @@ class App(tk.Tk):
 
         file_menu.add_command(label="Open Save…", command=self._open_file,
                               accelerator=f"{mod_key}O")
+
+        # Profile switcher — only shown when multiple profiles are detected
+        profiles = find_profiles()
+        if len(profiles) > 1:
+            profile_menu = tk.Menu(file_menu, tearoff=0)
+            for i, ppath in enumerate(profiles):
+                label = f"Profile {i + 1}  ({os.path.basename(ppath)})"
+                profile_menu.add_command(
+                    label=label,
+                    command=lambda p=ppath: self._load_save(os.path.join(p, "save.jkr")),
+                )
+            file_menu.add_cascade(label="Switch Profile", menu=profile_menu)
+
         file_menu.add_separator()
         file_menu.add_command(label="Save", command=self._save_file,
                               accelerator=f"{mod_key}S")
@@ -185,6 +232,14 @@ class App(tk.Tk):
                               accelerator=f"{mod_key}Q")
         menubar.add_cascade(label="File", menu=file_menu)
 
+        self.edit_menu = tk.Menu(menubar, tearoff=0)
+        self.edit_menu.add_command(
+            label="Undo", command=self._undo,
+            accelerator=f"{mod_key}Z", state="disabled",
+        )
+        self._undo_menu_item = "Undo"
+        menubar.add_cascade(label="Edit", menu=self.edit_menu)
+
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label="Set Balatro Game Folder…",
                                   command=self._browse_game_dir)
@@ -194,6 +249,7 @@ class App(tk.Tk):
 
         self.bind_all(f"<{bind_key}-o>", lambda e: self._open_file())
         self.bind_all(f"<{bind_key}-s>", lambda e: self._save_file())
+        self.bind_all(f"<{bind_key}-z>", lambda e: self._undo())
 
     def _build_ui(self):
         # ── Bottom bar: status + save button ──
@@ -255,16 +311,10 @@ class App(tk.Tk):
         self.deck_tab = DeckTab(self.notebook, self)
         self.consumable_tab = ConsumableTab(self.notebook, self)
 
-<<<<<<< HEAD
         self.notebook.add(self.general_tab, text="  General  ")
         self.notebook.add(self.joker_tab, text="  Jokers  ")
+        self.notebook.add(self.consumable_tab, text="  Consumables  ")
         self.notebook.add(self.deck_tab, text="  Deck  ")
-=======
-        self.notebook.add(self.general_tab, text="  ⚙ General  ")
-        self.notebook.add(self.joker_tab, text="  🃏 Jokers  ")
-        self.notebook.add(self.consumable_tab, text="  🔮 Consumables  ")
-        self.notebook.add(self.deck_tab, text="  🂠 Deck  ")
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
 
     def _update_title(self):
         base = "Balatro Save Editor"
@@ -425,32 +475,26 @@ class App(tk.Tk):
             messagebox.showerror("Error", f"Failed to load save:\n{e}")
             return
 
-<<<<<<< HEAD
-        # Auto-repair any cards with broken enhancement configs
-        repaired = repair_cards(self.data)
+        # Fresh file — clear undo history and disable Undo menu item
+        self._undo_stack.clear()
+        if hasattr(self, "_undo_menu_item") and hasattr(self, "edit_menu"):
+            self.edit_menu.entryconfig(self._undo_menu_item, state="disabled")
 
-        # Show a short display name instead of full path
-        short = os.path.basename(os.path.dirname(path)) + "/" + os.path.basename(path)
-        if repaired:
-            self.status_var.set(f"Loaded: {short}  \u2014  repaired {repaired} card field(s)")
-        else:
-            self.status_var.set(f"Loaded: {short}")
-=======
         # Auto-repair can overwrite values that some mods intentionally set.
         mod_info = detect_modded_content(self.data)
+        short = os.path.basename(os.path.dirname(path)) + "/" + os.path.basename(path)
         if mod_info["is_modded"]:
             reason = ", ".join(mod_info["reasons"])
             self.status_var.set(
-                f"Loaded: {path}  (modded content detected; skipped auto-repair: {reason})"
+                f"Loaded: {short}  (modded content detected; skipped auto-repair: {reason})"
             )
             repaired = 0
         else:
             repaired = repair_cards(self.data)
             if repaired:
-                self.status_var.set(f"Loaded: {path}  (repaired {repaired} card field(s))")
+                self.status_var.set(f"Loaded: {short}  (repaired {repaired} card field(s))")
             else:
-                self.status_var.set(f"Loaded: {path}")
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
+                self.status_var.set(f"Loaded: {short}")
 
         self._unsaved = repaired > 0
         self._update_title()

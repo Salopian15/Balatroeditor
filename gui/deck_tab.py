@@ -10,6 +10,7 @@ from game_data import (
     EDITIONS, EDITION_MAP, EDITION_COLOURS,
     SEALS, SEAL_MAP, SEAL_COLOURS,
     SUIT_COLOURS,
+    edition_name_to_id, enhancement_name_to_id, seal_name_to_id,
 )
 from editor_model import (
     get_playing_cards, set_card_enhancement, set_card_edition, set_card_seal,
@@ -101,16 +102,15 @@ class DeckTab(ttk.Frame):
         seal_combo.grid(row=1, column=5, padx=(0, 16))
         seal_combo.bind("<<ComboboxSelected>>", self._on_seal_change)
 
-<<<<<<< HEAD
         # Bulk apply sits in the same row, right-aligned
         ttk.Button(bot, text="Apply to All Visible",
                    command=self._bulk_apply).grid(row=1, column=6, padx=(4, 0))
         ttk.Label(bot, text="(applies current settings to all visible cards)",
                   foreground="#666677", font=("Helvetica", 9)
                   ).grid(row=2, column=0, columnspan=7, sticky="w", pady=(4, 0))
-=======
+
         btn_container = ttk.Frame(bot)
-        btn_container.grid(row=2, column=0, columnspan=6, pady=10, sticky="w")
+        btn_container.grid(row=3, column=0, columnspan=7, pady=(8, 0), sticky="w")
         ttk.Button(btn_container, text="Remove Selected", command=self._remove_card).pack(side="left", padx=5)
         ttk.Button(btn_container, text="Add Card to Deck", command=self._show_add_card).pack(side="left", padx=5)
 
@@ -118,7 +118,6 @@ class DeckTab(ttk.Frame):
         if not getattr(self, 'selected_indices', None):
             return
         from editor_model import remove_playing_card
-        from tkinter import messagebox
         cards_to_remove = [self.cards[i] for i in self.selected_indices]
         for cinfo in cards_to_remove:
             remove_playing_card(self.data, cinfo["card"], area=cinfo["area"])
@@ -153,17 +152,11 @@ class DeckTab(ttk.Frame):
             dlg.destroy()
 
         ttk.Button(dlg, text="Add to Deck", command=do_add).pack(pady=20)
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
 
     def _on_enh_change(self, event=None):
         if not getattr(self, 'selected_indices', None):
             return
-        enh_name = self.enh_var.get()
-        enh_id = "c_base"
-        for eid, ename, *_ in ENHANCEMENTS:
-            if ename == enh_name:
-                enh_id = eid
-                break
+        enh_id = enhancement_name_to_id(self.enh_var.get())
         for idx in self.selected_indices:
             card_obj = self.cards[idx]["card"]
             set_card_enhancement(card_obj, enh_id)
@@ -174,12 +167,7 @@ class DeckTab(ttk.Frame):
     def _on_ed_change(self, event=None):
         if not getattr(self, 'selected_indices', None):
             return
-        ed_name = self.ed_var.get()
-        ed_key = "base"
-        for eid, ename, *_ in EDITIONS:
-            if ename == ed_name:
-                ed_key = eid
-                break
+        ed_key = edition_name_to_id(self.ed_var.get())
         for idx in self.selected_indices:
             card_obj = self.cards[idx]["card"]
             set_card_edition(card_obj, ed_key)
@@ -190,12 +178,7 @@ class DeckTab(ttk.Frame):
     def _on_seal_change(self, event=None):
         if not getattr(self, 'selected_indices', None):
             return
-        seal_name = self.seal_var.get()
-        seal_val = None
-        for sid, sname, *_ in SEALS:
-            if sname == seal_name:
-                seal_val = sid
-                break
+        seal_val = seal_name_to_id(self.seal_var.get())
         for idx in self.selected_indices:
             card_obj = self.cards[idx]["card"]
             set_card_seal(card_obj, seal_val)
@@ -205,32 +188,11 @@ class DeckTab(ttk.Frame):
 
     def _bulk_apply(self):
         """Apply current enhancement/edition/seal settings to all visible cards."""
-<<<<<<< HEAD
         if not self.cards:
             return
-=======
-        if not self.selected_indices:
-            pass # Can still apply visible
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
-        enh_name = self.enh_var.get()
-        ed_name = self.ed_var.get()
-        seal_name = self.seal_var.get()
-
-        enh_id = "c_base"
-        for eid, ename, *_ in ENHANCEMENTS:
-            if ename == enh_name:
-                enh_id = eid
-                break
-        ed_key = "base"
-        for eid, ename, *_ in EDITIONS:
-            if ename == ed_name:
-                ed_key = eid
-                break
-        seal_val = None
-        for sid, sname, *_ in SEALS:
-            if sname == seal_name:
-                seal_val = sid
-                break
+        enh_id = enhancement_name_to_id(self.enh_var.get())
+        ed_key = edition_name_to_id(self.ed_var.get())
+        seal_val = seal_name_to_id(self.seal_var.get())
 
         area_filter = self.area_var.get()
         for i, cinfo in enumerate(self.cards):
@@ -261,18 +223,16 @@ class DeckTab(ttk.Frame):
             return
             
         cinfo = self.cards[idx]
-<<<<<<< HEAD
-        self.sel_label.config(
-            text=f"{cinfo['rank']} of {cinfo['suit']}  \u2014  {cinfo['area']}",
-            foreground="#e0e0e0",
-        )
-=======
         if len(self.selected_indices) == 1:
-            self.sel_label.config(text=f"{cinfo['rank']} of {cinfo['suit']}  [{cinfo['area']}]")
+            self.sel_label.config(
+                text=f"{cinfo['rank']} of {cinfo['suit']}  \u2014  {cinfo['area']}",
+                foreground="#e0e0e0",
+            )
         else:
-            self.sel_label.config(text=f"{len(self.selected_indices)} cards selected")
-
->>>>>>> b145c62b9d60c866cbfc705dc5fba4284f83949d
+            self.sel_label.config(
+                text=f"{len(self.selected_indices)} cards selected",
+                foreground="#e0e0e0",
+            )
         enh_display = ENHANCEMENT_MAP.get(cinfo["enhancement"], "None")
         ed_display = EDITION_MAP.get(cinfo["edition"], "None")
         seal_display = SEAL_MAP.get(cinfo["seal"], "None")
